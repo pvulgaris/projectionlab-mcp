@@ -16,11 +16,15 @@ import { createServer } from "./server.js";
 import { loginInteractive, statusReport, shutdown } from "./browser.js";
 import { config } from "./config.js";
 import { tryAcquireLock, releaseLock, readLockOwner } from "./lock.js";
+import { runDaemon } from "./daemon.js";
 
 const cmd = process.argv[2] ?? "serve";
 
 async function main() {
   switch (cmd) {
+    case "daemon":
+      await daemon();
+      break;
     case "serve":
       await serve();
       break;
@@ -51,11 +55,37 @@ async function main() {
 }
 
 async function serve() {
+  acquireLockOrExit();
+  installShutdownHandlers();
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+async function daemon() {
+  // Optional --port arg
+  let port: number | undefined;
+  for (let i = 3; i < process.argv.length; i++) {
+    if (process.argv[i] === "--port" && process.argv[i + 1]) {
+      port = parseInt(process.argv[i + 1], 10);
+      i++;
+    }
+  }
+  acquireLockOrExit();
+  installShutdownHandlers();
+  runDaemon(port);
+  // runDaemon binds the listener; process stays alive until SIGINT/SIGTERM.
+}
+
+function acquireLockOrExit() {
   const conflict = tryAcquireLock();
   if (conflict) {
     process.stderr.write(`pl-mcp: ${conflict.message}\n`);
     process.exit(2);
   }
+}
+
+function installShutdownHandlers() {
   process.on("exit", () => releaseLock());
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, async () => {
@@ -64,9 +94,6 @@ async function serve() {
       process.exit(0);
     });
   }
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
 }
 
 async function login() {
@@ -94,11 +121,14 @@ function printHelp() {
     [
       "pl-mcp — ProjectionLab MCP server",
       "",
-      "Usage: pl-mcp [serve|login|logout|status]",
+      "Usage: pl-mcp [daemon|serve|login|logout|status] [options]",
       "",
       "Commands:",
-      "  serve     Run the MCP server over stdio (default).",
-      "  login     Open a headed browser for one-time Firebase sign-in.",
+      "  daemon    Run the long-lived HTTP daemon (recommended). All MCP clients",
+      "            connect to one shared instance. Use --port to override (default 7301).",
+      "  serve     Run the MCP server over stdio (one-process-per-host; legacy).",
+      "  login     Open a headed browser for one-time Firebase sign-in (CLI fallback;",
+      "            prefer the pl_login_interactive MCP tool when daemon is running).",
       "  logout    Remove the persisted browser profile.",
       "  status    Print session diagnostics as JSON.",
       "",

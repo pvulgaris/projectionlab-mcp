@@ -18,7 +18,7 @@ import {
 import { plUpdateAccount } from "./tools/update.js";
 import { plSnapshot, plListSnapshots, plSnapshotStats } from "./tools/snapshot.js";
 import { plRestorePreview, plRestoreApply } from "./tools/restore.js";
-import { plSessionStatus, plValidateKey, plReloadSession } from "./tools/session.js";
+import { plSessionStatus, plValidateKey, plReloadSession, plLoginInteractive } from "./tools/session.js";
 
 function jsonContent(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -76,6 +76,20 @@ export function createServer(): McpServer {
     "Close the in-memory browser context and re-launch a fresh one against the on-disk persistent profile. Use after the user runs `pl-mcp login` so newly-written Firebase cookies take effect — without this, the server keeps using the stale auth state from when its browser was first launched. Returns the same shape as pl_session_status.",
     {},
     safeTool(plReloadSession),
+  );
+
+  server.tool(
+    "pl_login_interactive",
+    "Open a headed browser window for the user to sign into ProjectionLab (Firebase auth). The server temporarily shuts down its headless Chromium, opens the visible login window, polls for sign-in, and then re-launches its headless context against the freshly-signed-in profile. Other tool calls during login are rejected with `login_in_progress`. Use this whenever pl_session_status reports signedIn:false — no separate CLI command needed.",
+    {
+      timeout_seconds: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("How long to wait for the user to complete sign-in. Defaults to 300 (5 minutes)."),
+    },
+    safeTool(plLoginInteractive),
   );
 
   // Reads.
