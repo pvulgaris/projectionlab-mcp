@@ -15,6 +15,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createServer } from "./server.js";
 import { loginInteractive, statusReport, shutdown } from "./browser.js";
 import { config } from "./config.js";
+import { tryAcquireLock, releaseLock, readLockOwner } from "./lock.js";
 
 const cmd = process.argv[2] ?? "serve";
 
@@ -24,7 +25,7 @@ async function main() {
       await serve();
       break;
     case "login":
-      await loginInteractive();
+      await login();
       break;
     case "logout":
       await shutdown();
@@ -50,17 +51,42 @@ async function main() {
 }
 
 async function serve() {
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  // Keep process alive until stdio closes; the SDK handles cleanup.
-  // Best-effort cleanup on signals.
+  const conflict = tryAcquireLock();
+  if (conflict) {
+    process.stderr.write(`pl-mcp: ${conflict.message}\n`);
+    process.exit(2);
+  }
+  process.on("exit", () => releaseLock());
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.on(sig, async () => {
       await shutdown().catch(() => {});
+      releaseLock();
       process.exit(0);
     });
   }
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+async function login() {
+  // Login launches its own Chromium against the profile, so it has the same
+  // contention problem as serve. Surface the conflict before touching the
+  // profile so the user knows exactly what to kill.
+  const owner = readLockOwner();
+  if (owner?.alive) {
+    process.stderr.write(
+      `pl-mcp: a server (PID ${owner.pid}) is currently using the profile.\n` +
+        `Logging in while another process holds the profile produces inconsistent auth state.\n` +
+        `Stop it first:\n` +
+        `  kill ${owner.pid}\n` +
+        `or kill all pl-mcp processes:\n` +
+        `  pkill -f projectionlab-mcp\n` +
+        `Then re-run pl-mcp login.\n`,
+    );
+    process.exit(2);
+  }
+  await loginInteractive();
 }
 
 function printHelp() {
