@@ -19,6 +19,26 @@ let ctx: BrowserContext | null = null;
 let page: Page | null = null;
 let initPromise: Promise<Page> | null = null;
 
+// Login mutex. While true, all other tool calls are rejected so the headed
+// login Chromium can have exclusive access to the profile dir.
+let loginInProgress = false;
+
+export function isLoginInProgress(): boolean {
+  return loginInProgress;
+}
+
+export async function withLoginLock<T>(fn: () => Promise<T>): Promise<T> {
+  if (loginInProgress) {
+    throw new Error("login_in_progress: another login is already running; retry shortly.");
+  }
+  loginInProgress = true;
+  try {
+    return await fn();
+  } finally {
+    loginInProgress = false;
+  }
+}
+
 async function launch(headless: boolean): Promise<{ ctx: BrowserContext; page: Page }> {
   await fs.mkdir(config.profileDir, { recursive: true });
   const newCtx = await chromium.launchPersistentContext(config.profileDir, {
@@ -51,6 +71,9 @@ async function ensurePage(): Promise<Page> {
  * is signed in. Throws actionable errors otherwise.
  */
 export async function getReadyPage(): Promise<Page> {
+  if (loginInProgress) {
+    throw new Error("login_in_progress: a login is currently in progress; retry shortly.");
+  }
   const p = await ensurePage();
   if (!p.url().startsWith(config.baseUrl)) {
     await p.goto(config.baseUrl, { waitUntil: "domcontentloaded" });
@@ -130,10 +153,10 @@ export async function loginInteractive(timeoutMs = 5 * 60_000): Promise<void> {
   // Give the SPA a beat to write any post-login state to localStorage/IDB.
   await new Promise((r) => setTimeout(r, 1500));
   await interactive.close();
+  // Small extra wait so Chromium fully releases the profile lock files
+  // before the next caller (likely the daemon's headless relaunch) opens them.
+  await new Promise((r) => setTimeout(r, 500));
   process.stderr.write(`Done. Profile saved to: ${config.profileDir}\n`);
-  process.stderr.write(
-    "If an MCP server is already running, call pl_reload_session (or restart the host) to pick up the new cookies.\n",
-  );
 }
 
 /**

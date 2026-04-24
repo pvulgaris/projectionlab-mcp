@@ -22,7 +22,7 @@ A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md)
 
 ## Install
 
-*Requires Node.js 20+ and works on macOS or Linux. The server downloads its own Chromium via Playwright on first install.*
+*Requires Node.js 20+ and macOS (the launchd daemon flow assumes macOS; the stdio fallback works on Linux too). The server downloads its own Chromium via Playwright on first install.*
 
 ```sh
 git clone <this-repo> ~/Dropbox/Code/projectionlab-mcp
@@ -42,28 +42,56 @@ printf '%s' 'YOUR_PLUGIN_API_KEY' > ~/.config/projectionlab/key
 chmod 600 ~/.config/projectionlab/key
 ```
 
-### 2. Sign in to ProjectionLab once
+### 2. Install the daemon (recommended)
+
+The daemon runs as a launchd user agent. All MCP clients (Claude Code, Claude Desktop, etc.) connect to one shared instance over HTTP — same Chromium, same auth, no per-host process management.
 
 ```sh
-node dist/cli.js login
-# or, if you've globally linked: pl-mcp login
+./examples/install-daemon.sh
 ```
 
-A Chromium window opens. Sign in to ProjectionLab. Once authenticated, the window closes and your Firebase session cookies persist to `~/.config/projectionlab/profile/`. The MCP server reuses that profile from then on — no further logins until the cookies expire.
+The script renders the launchd plist, bootstraps the agent, and prints the next steps.
 
-### 3. Register the MCP server with Claude Code
+### 3. Register the MCP server in your hosts
+
+**Claude Code:**
 
 ```sh
-claude mcp add projectionlab -- node /Users/YOU/Dropbox/Code/projectionlab-mcp/dist/cli.js serve
+claude mcp remove projectionlab -s user 2>/dev/null || true
+claude mcp add --scope user --transport http projectionlab http://127.0.0.1:7301/mcp
 ```
 
-Restart your Claude Code session. The tools appear as `mcp__projectionlab__*`.
+**Claude Desktop:** edit `~/Library/Application Support/Claude/claude_desktop_config.json` and replace the `projectionlab` block with:
 
-### 4. Link the skill (optional)
+```json
+"projectionlab": { "url": "http://127.0.0.1:7301/mcp" }
+```
+
+Quit and relaunch Claude Desktop. Restart any open Claude Code sessions.
+
+### 4. Sign in (first time)
+
+In any host, ask Claude:
+
+> sign me into ProjectionLab
+
+The agent will call `pl_login_interactive`, a headed browser opens, you sign in, and you're done. No CLI command needed; the daemon handles everything.
+
+### 5. Link the skill (optional)
 
 ```sh
 ln -sfn "$PWD/skills/projectionlab" ~/.claude/skills/projectionlab
 ```
+
+### Stdio fallback (development / non-daemon use)
+
+If you'd rather not run the daemon (e.g., for development), you can still register the stdio server per-host:
+
+```sh
+claude mcp add projectionlab -- node /path/to/projectionlab-mcp/dist/cli.js serve
+```
+
+The singleton lock prevents accidental multi-process corruption, but you can only have one host using PL at a time.
 
 ## Verify
 
@@ -115,6 +143,8 @@ In a fresh Claude Code session:
 | `pl_snapshot_stats` | Aggregate count + total bytes; oldest/newest. |
 | `pl_restore_preview` | Read-only diff: what `pl_restore_apply` would change. |
 | `pl_restore_apply` | Re-apply balances + costBasis from a snapshot (preview first; confirm). |
+| `pl_reload_session` | Close + re-launch the browser context (post-login recovery; legacy stdio mode). |
+| `pl_login_interactive` | Open a headed browser for the user to sign into ProjectionLab. Daemon-mode preferred. |
 
 ## Configuration
 
@@ -163,30 +193,22 @@ The server reads the key file on every call; no restart needed.
 
 ### One-server-per-profile rule
 
-Two `pl-mcp serve` processes (or a `serve` + a `login`) using the same `PROJECTIONLAB_PROFILE_DIR` corrupt Chromium's LevelDB cookie/IndexedDB stores. The most common symptom is `signedIn: false` even with valid Firebase auth on disk.
+Two pl-mcp processes using the same `PROJECTIONLAB_PROFILE_DIR` corrupt Chromium's LevelDB cookie/IndexedDB stores. The CLI enforces this with a PID lock file at `<profile>/.pl-mcp-server.pid`:
 
-The CLI enforces this with a PID lock file at `<profile>/.pl-mcp-server.pid`:
+- `pl-mcp daemon` and `pl-mcp serve` refuse to start if another live server holds the lock.
+- `pl-mcp login` refuses to start if a server is currently active (use `pl_login_interactive` MCP tool instead).
 
-- `pl-mcp serve` refuses to start if another live server holds the lock.
-- `pl-mcp login` refuses to start if a server is currently active.
-
-Both print the conflicting PID so you can `kill <pid>` (or `pkill -f projectionlab-mcp` for everything) and retry.
-
-If you want PL available in *both* Claude Code and the Claude Desktop app at the same time, you have two options:
-
-1. **Sequential use**: only one host at a time has the MCP active. The other waits.
-2. **Separate profiles**: register the MCP twice with different `PROJECTIONLAB_PROFILE_DIR` env vars. Each host gets its own profile and its own login. (Trade-off: you log in twice.)
+The recommended daemon mode + launchd makes this a non-issue: launchd ensures exactly one daemon is running, and all MCP clients share it.
 
 ### Re-login when the Firebase session expires
 
-```sh
-node dist/cli.js login
-```
+In any host, ask Claude:
 
-After login, the on-disk profile has fresh cookies but **a running MCP server is still holding the pre-login browser context in memory** — its reads will continue to report `signedIn: false`. Two ways to recover:
+> sign me into ProjectionLab
 
-1. **Call `pl_reload_session`** from your MCP client (Claude Code, Cowork, etc.) — closes and re-launches the context against the updated profile. No host restart needed.
-2. **Restart the MCP host** (toggle the connector off/on in Cowork; restart the Claude Code session). Heavier; only needed if `pl_reload_session` itself is unavailable.
+That triggers the `pl_login_interactive` tool. The daemon temporarily shuts down its headless Chromium, opens a headed window, waits for sign-in, then re-launches headless against the freshly-signed-in profile. Other tool calls during login return `login_in_progress`.
+
+CLI fallback (only when the daemon isn't running): `node dist/cli.js login` — same headed-browser flow, but you'll need to start the daemon back up afterwards.
 
 ### Wipe the persistent profile
 
