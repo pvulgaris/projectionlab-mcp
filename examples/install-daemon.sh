@@ -62,8 +62,12 @@ echo "       claude mcp remove projectionlab -s user 2>/dev/null || true"
 echo "       claude mcp add --scope user --transport http projectionlab http://127.0.0.1:$PORT/mcp"
 echo
 echo "  2. Update Claude Desktop config (~/Library/Application Support/Claude/claude_desktop_config.json):"
-echo "     replace the projectionlab stdio block with:"
-echo '       "projectionlab": { "url": "http://127.0.0.1:'"$PORT"'/mcp" }'
+echo "     replace the projectionlab stdio block with the mcp-remote bridge"
+echo "     (Claude Desktop's config doesn't support HTTP MCPs natively):"
+echo '       "projectionlab": {'
+echo '         "command": "npx",'
+echo "         \"args\": [\"-y\", \"mcp-remote\", \"http://127.0.0.1:$PORT/mcp\", \"--allow-http\"]"
+echo '       }'
 echo
 echo "  3. Quit and relaunch Claude Desktop. Restart any open Claude Code sessions."
 echo

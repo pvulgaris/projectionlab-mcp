@@ -61,11 +61,16 @@ claude mcp remove projectionlab -s user 2>/dev/null || true
 claude mcp add --scope user --transport http projectionlab http://127.0.0.1:7301/mcp
 ```
 
-**Claude Desktop:** edit `~/Library/Application Support/Claude/claude_desktop_config.json` and replace the `projectionlab` block with:
+**Claude Desktop:** the desktop app's `claude_desktop_config.json` accepts only stdio MCP entries (HTTP/SSE servers are managed via the in-app Connectors UI for Anthropic-hosted ones). Use `mcp-remote` as a stdio→HTTP bridge:
 
 ```json
-"projectionlab": { "url": "http://127.0.0.1:7301/mcp" }
+"projectionlab": {
+  "command": "npx",
+  "args": ["-y", "mcp-remote", "http://127.0.0.1:7301/mcp", "--allow-http"]
+}
 ```
+
+`--allow-http` is required because mcp-remote defaults to HTTPS-only; localhost is the exception. The first launch downloads `mcp-remote` from npm and is slow; subsequent launches use the npx cache.
 
 Quit and relaunch Claude Desktop. Restart any open Claude Code sessions.
 
