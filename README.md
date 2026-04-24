@@ -1,17 +1,16 @@
 # projectionlab-mcp
 
-A Model Context Protocol server for [ProjectionLab](https://projectionlab.com). Exposes plan reads, account updates, and snapshots as MCP tools by driving a persistent headless Playwright browser against the ProjectionLab Plugin API (`window.projectionlabPluginAPI`).
-
-Replaces the older [`projectionlab-skill`](https://github.com/) approach (which proxied through the Claude in Chrome browser extension). This server holds its own browser session, eliminating the cold-boot wait, the 50KB tool-result cap, and the JWT-redaction quirks of the previous architecture.
-
-Once installed and registered, you can ask Claude things like:
+A [Model Context Protocol](https://modelcontextprotocol.io) server for [ProjectionLab](https://projectionlab.com). Exposes plan reads, account updates, snapshots, and rollback as MCP tools — so you can ask Claude (or any MCP-aware host) things like:
 
 - *What's in my ProjectionLab plan?*
 - *Show me my account balances.*
 - *Back up my ProjectionLab plan.*
 - *Update my Fidelity 401k balance to 125000.*
+- *Undo my last change.*
 
-A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md) covers the workflow conventions (confirm-before-write, composition with other MCPs).
+It works by driving a persistent headless Playwright browser against an authenticated ProjectionLab tab and calling `window.projectionlabPluginAPI`. In daemon mode, all your MCP hosts (Claude Code, Claude Desktop, etc.) share one browser instance and one auth state.
+
+A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md) covers workflow conventions (confirm-before-write, batch update patterns).
 
 ## Status
 
