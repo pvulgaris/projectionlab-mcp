@@ -21,11 +21,23 @@ A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md)
 
 ## Install
 
-*Requires Node.js 20+ and macOS (the launchd daemon flow assumes macOS; the stdio fallback works on Linux too). The server downloads its own Chromium via Playwright on first install.*
+### Prerequisites
+
+- **Node.js 20+** — install via `brew install node` or from [nodejs.org](https://nodejs.org).
+- **git** — included with the macOS Xcode Command Line Tools (`xcode-select --install` triggers the install if you don't have them yet).
+- **ProjectionLab account with Plugins enabled** — the Plugin API is a Pro-tier feature. If you don't see the **Plugins** menu under ProjectionLab Settings, you'll need to upgrade.
+- **An MCP host** — at least one of [Claude Code](https://claude.com/claude-code) (CLI) or [Claude Desktop](https://claude.ai/download) (Mac app).
+- **macOS** — the daemon flow uses `launchd`. The stdio fallback works on Linux too.
+
+The server downloads its own Chromium via Playwright on first install.
+
+### Clone and build
+
+Clone wherever you keep your code; the rest of these instructions assume you're in the repo root.
 
 ```sh
-git clone <this-repo> ~/Dropbox/Code/projectionlab-mcp
-cd ~/Dropbox/Code/projectionlab-mcp
+git clone https://github.com/pvulgaris/projectionlab-mcp.git
+cd projectionlab-mcp
 npm install
 npx playwright install chromium
 npm run build
@@ -83,8 +95,10 @@ The agent will call `pl_login_interactive`, a headed browser opens, you sign in,
 
 ### 5. Link the skill (optional)
 
+From the repo root:
+
 ```sh
-ln -sfn "$PWD/skills/projectionlab" ~/.claude/skills/projectionlab
+ln -sfn "$(pwd)/skills/projectionlab" ~/.claude/skills/projectionlab
 ```
 
 ### Stdio fallback (development / non-daemon use)
@@ -99,29 +113,34 @@ The singleton lock prevents accidental multi-process corruption, but you can onl
 
 ## Verify
 
-Run the diagnostic command:
+The natural way: in any MCP host, ask Claude:
 
-```sh
-node dist/cli.js status
-```
+> check ProjectionLab session status
 
-Expected output (with everything healthy):
+That calls `pl_session_status`, which returns JSON like:
 
 ```json
 {
-  "keyPath": "/Users/YOU/.config/projectionlab/key",
-  "profilePath": "/Users/YOU/.config/projectionlab/profile",
-  "backupsPath": "/Users/YOU/.config/projectionlab/backups",
-  "baseUrl": "https://app.projectionlab.com/",
-  "headless": true,
   "apiKeyPresent": true,
   "browserAlive": true,
   "signedIn": true,
-  "pluginApiReady": true
+  "pluginApiReady": true,
+  ...
 }
 ```
 
-In a fresh Claude Code session:
+Or test the daemon directly with `curl` (works regardless of MCP host):
+
+```sh
+curl -s -X POST http://127.0.0.1:7301/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"1"}}}'
+```
+
+A 200 with an `initialize` result means the daemon is live. (Note: `node dist/cli.js status` works only when the daemon is **not** running — the singleton lock prevents two pl-mcp processes from sharing a profile.)
+
+In a fresh MCP-host session, smoke-test the tool surface:
 
 - *"What's in my ProjectionLab plan?"* → calls `pl_export`, returns counts/structure.
 - *"Back up my plan."* → calls `pl_snapshot`, file appears in `~/.config/projectionlab/backups/`.
