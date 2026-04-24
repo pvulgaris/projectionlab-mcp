@@ -13,7 +13,7 @@
 
 import { chromium, BrowserContext, Page } from "playwright";
 import fs from "node:fs/promises";
-import { config } from "./config.js";
+import { config, apiKeyExists } from "./config.js";
 
 let ctx: BrowserContext | null = null;
 let page: Page | null = null;
@@ -151,12 +151,7 @@ export async function statusReport() {
     error: undefined as string | undefined,
   };
 
-  try {
-    const stat = await fs.stat(config.keyPath);
-    out.apiKeyPresent = stat.size > 0;
-  } catch {
-    out.apiKeyPresent = false;
-  }
+  out.apiKeyPresent = apiKeyExists();
 
   try {
     const p = await ensurePage();

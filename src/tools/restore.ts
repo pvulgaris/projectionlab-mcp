@@ -57,6 +57,13 @@ interface PreviewChange {
 export async function plRestorePreview(args: ResolveSnapshotArgs) {
   const entry = await resolveSnapshot(args);
   const snapshotJson = JSON.parse(await fs.readFile(entry.path, "utf-8"));
+  // Sanity-check the file is a PL export. Without this, pointing at a random
+  // JSON file silently yields empty changes/additions/deletions — confusing.
+  if (!snapshotJson || typeof snapshotJson !== "object" || !snapshotJson.today) {
+    throw new Error(
+      `Snapshot file does not look like a ProjectionLab export (missing top-level \`today\`): ${entry.path}`,
+    );
+  }
   const snapAccounts = rosterFromExport(snapshotJson);
   const currentData = await exportData();
   const currAccounts = rosterFromExport(currentData);
