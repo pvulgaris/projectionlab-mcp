@@ -1,0 +1,44 @@
+{
+  "name": "projectionlab-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for reading and updating ProjectionLab plan state via the Plugin API. Drives a persistent headless Playwright session against an authenticated ProjectionLab tab.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Peter Vulgaris",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "projectionlab",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "finance",
+    "fire",
+    "playwright"
+  ],
+  "bin": {
+    "pl-mcp": "dist/cli.js"
+  },
+  "main": "dist/cli.js",
+  "files": [
+    "dist/"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "dev": "tsx src/cli.ts",
+    "serve": "node dist/cli.js serve",
+    "start": "node dist/cli.js serve"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "playwright": "^1.50.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.0"
+  }
+}
