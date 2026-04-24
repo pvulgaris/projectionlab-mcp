@@ -18,7 +18,7 @@ import {
 import { plUpdateAccount } from "./tools/update.js";
 import { plSnapshot, plListSnapshots, plSnapshotStats } from "./tools/snapshot.js";
 import { plRestorePreview, plRestoreApply } from "./tools/restore.js";
-import { plSessionStatus, plValidateKey } from "./tools/session.js";
+import { plSessionStatus, plValidateKey, plReloadSession } from "./tools/session.js";
 
 function jsonContent(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -69,6 +69,13 @@ export function createServer(): McpServer {
     "Cheap auth probe — calls validateApiKey() upstream. Returns { valid: boolean, error?: string }. Use before bulk writes to fail fast on a stale key.",
     {},
     safeTool(plValidateKey),
+  );
+
+  server.tool(
+    "pl_reload_session",
+    "Close the in-memory browser context and re-launch a fresh one against the on-disk persistent profile. Use after the user runs `pl-mcp login` so newly-written Firebase cookies take effect — without this, the server keeps using the stale auth state from when its browser was first launched. Returns the same shape as pl_session_status.",
+    {},
+    safeTool(plReloadSession),
   );
 
   // Reads.

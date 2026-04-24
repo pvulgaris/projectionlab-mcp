@@ -88,7 +88,9 @@ When the user says "undo," "revert," "go back," or asks to restore to a known-go
 
 ## Error guidance
 
-- `signed_out` — the user's PL session expired. Tell them to run `pl-mcp login` (a browser window opens, they sign in, cookies persist).
+- `signed_out` — the user's PL session is not signed in. Two cases:
+  1. Cookies expired or never set: tell the user to run `pl-mcp login` in a terminal, complete sign-in, then say "done." When they confirm, call `pl_reload_session` (which closes and re-launches the browser context) and re-probe with `pl_session_status`.
+  2. Cookies were just refreshed but the running MCP still has the old in-memory context: skip the login step; just call `pl_reload_session`.
 - `api_booting` — almost always Plugins are disabled in PL Settings > Plugins.
 - `Invalid Plugin API Key` — stale key. Tell the user to regenerate in PL Settings > Plugins and overwrite `~/.config/projectionlab/key`.
 - Any other error — call `pl_session_status` for diagnostics; it never throws.

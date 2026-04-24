@@ -167,6 +167,11 @@ The server reads the key file on every call; no restart needed.
 node dist/cli.js login
 ```
 
+After login, the on-disk profile has fresh cookies but **a running MCP server is still holding the pre-login browser context in memory** — its reads will continue to report `signedIn: false`. Two ways to recover:
+
+1. **Call `pl_reload_session`** from your MCP client (Claude Code, Cowork, etc.) — closes and re-launches the context against the updated profile. No host restart needed.
+2. **Restart the MCP host** (toggle the connector off/on in Cowork; restart the Claude Code session). Heavier; only needed if `pl_reload_session` itself is unavailable.
+
 ### Wipe the persistent profile
 
 ```sh

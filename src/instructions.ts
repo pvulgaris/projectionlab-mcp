@@ -29,7 +29,7 @@ export const SERVER_INSTRUCTIONS = [
   "- No auto-prune in v1. If pl_snapshot_stats shows growth becoming a concern, suggest the user prune manually with `rm`.",
   "",
   "## Error handling",
-  "- `signed_out` error: the user's PL session expired. Tell them to run `pl-mcp login` (a browser will open).",
+  "- `signed_out` error: the user's PL session expired OR they just ran `pl-mcp login` but the server hasn't picked up the new cookies. Tell them: '1) run `pl-mcp login` if you haven't, 2) call pl_reload_session to refresh the browser context, then I'll re-probe.' Then call pl_reload_session yourself and check pl_session_status.",
   "- `api_booting` error: the PL plugin API didn't register; usually means Plugins are disabled in PL Settings > Plugins.",
   "- 'Invalid Plugin API Key' error: the saved key is stale. Tell the user to regenerate in PL Settings > Plugins and overwrite the key file.",
   "- 'Pre-write snapshot failed': the snapshot before a write failed, so the write was refused. Investigate the snapshot error before retrying.",

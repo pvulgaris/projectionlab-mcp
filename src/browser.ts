@@ -131,6 +131,9 @@ export async function loginInteractive(timeoutMs = 5 * 60_000): Promise<void> {
   await new Promise((r) => setTimeout(r, 1500));
   await interactive.close();
   process.stderr.write(`Done. Profile saved to: ${config.profileDir}\n`);
+  process.stderr.write(
+    "If an MCP server is already running, call pl_reload_session (or restart the host) to pick up the new cookies.\n",
+  );
 }
 
 /**
