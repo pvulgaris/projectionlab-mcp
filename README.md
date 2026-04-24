@@ -161,6 +161,22 @@ chmod 600 ~/.config/projectionlab/key
 
 The server reads the key file on every call; no restart needed.
 
+### One-server-per-profile rule
+
+Two `pl-mcp serve` processes (or a `serve` + a `login`) using the same `PROJECTIONLAB_PROFILE_DIR` corrupt Chromium's LevelDB cookie/IndexedDB stores. The most common symptom is `signedIn: false` even with valid Firebase auth on disk.
+
+The CLI enforces this with a PID lock file at `<profile>/.pl-mcp-server.pid`:
+
+- `pl-mcp serve` refuses to start if another live server holds the lock.
+- `pl-mcp login` refuses to start if a server is currently active.
+
+Both print the conflicting PID so you can `kill <pid>` (or `pkill -f projectionlab-mcp` for everything) and retry.
+
+If you want PL available in *both* Claude Code and the Claude Desktop app at the same time, you have two options:
+
+1. **Sequential use**: only one host at a time has the MCP active. The other waits.
+2. **Separate profiles**: register the MCP twice with different `PROJECTIONLAB_PROFILE_DIR` env vars. Each host gets its own profile and its own login. (Trade-off: you log in twice.)
+
 ### Re-login when the Firebase session expires
 
 ```sh
