@@ -93,6 +93,7 @@ When the user says "undo," "revert," "go back," or asks to restore to a known-go
 - `api_booting` — almost always Plugins are disabled in PL Settings > Plugins.
 - `Invalid Plugin API Key` — stale key. Tell the user to regenerate in PL Settings > Plugins and overwrite `~/.config/projectionlab/key`.
 - Any other error — call `pl_session_status` for diagnostics; it never throws.
+- Before a batch of writes, you can call `pl_validate_key` as a cheap probe — it confirms the saved key is current without touching plan state.
 
 ## Rules
 

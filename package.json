@@ -26,7 +26,6 @@
   "bin": {
     "pl-mcp": "dist/cli.js"
   },
-  "main": "dist/cli.js",
   "files": [
     "dist/"
   ],
@@ -35,7 +34,7 @@
     "prepare": "tsc",
     "dev": "tsx src/cli.ts",
     "serve": "node dist/cli.js serve",
-    "start": "node dist/cli.js serve"
+    "test": "echo 'no tests yet' && exit 1"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

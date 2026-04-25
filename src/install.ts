@@ -146,7 +146,7 @@ export async function installDaemon(portArg?: number): Promise<void> {
 
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.mkdirSync(path.join(home, "Library/Logs"), { recursive: true });
-  fs.writeFileSync(target, plistTemplate({ node, cli, workingDir, home, port }));
+  fs.writeFileSync(target, plistTemplate({ node, cli, workingDir, home, port }), { mode: 0o644 });
 
   const uid = process.getuid?.() ?? 0;
   const domain = `gui/${uid}/${LABEL}`;
