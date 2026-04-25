@@ -4,10 +4,14 @@
  * pl-mcp — CLI entry point.
  *
  * Subcommands:
- *   serve   (default) Run the MCP server over stdio.
- *   login           Open a headed browser for one-time Firebase sign-in.
- *   logout          Remove the persisted browser profile.
- *   status          Print session diagnostics.
+ *   daemon              Run the long-lived HTTP server (recommended).
+ *   daemon install      Install + start the launchd user agent (macOS).
+ *   daemon uninstall    Stop + remove the launchd user agent (macOS).
+ *   bridge              Stdio MCP server that proxies to the running daemon.
+ *   serve               Run the MCP server over stdio (single-host fallback).
+ *   login               Open a headed browser for one-time Firebase sign-in.
+ *   logout              Remove the persisted browser profile.
+ *   status              Print session diagnostics.
  */
 
 import fs from "node:fs/promises";
@@ -17,6 +21,8 @@ import { loginInteractive, statusReport, shutdown } from "./browser.js";
 import { config } from "./config.js";
 import { tryAcquireLock, releaseLock, readLockOwner } from "./lock.js";
 import { runDaemon } from "./daemon.js";
+import { runBridge } from "./bridge.js";
+import { installDaemon, uninstallDaemon } from "./install.js";
 
 const cmd = process.argv[2] ?? "serve";
 
@@ -24,6 +30,9 @@ async function main() {
   switch (cmd) {
     case "daemon":
       await daemon();
+      break;
+    case "bridge":
+      await runBridge();
       break;
     case "serve":
       await serve();
@@ -63,18 +72,30 @@ async function serve() {
 }
 
 async function daemon() {
-  // Optional --port arg
-  let port: number | undefined;
-  for (let i = 3; i < process.argv.length; i++) {
-    if (process.argv[i] === "--port" && process.argv[i + 1]) {
-      port = parseInt(process.argv[i + 1], 10);
-      i++;
-    }
+  const sub = process.argv[3];
+  if (sub === "install") {
+    await installDaemon(parsePortArg(4));
+    return;
   }
+  if (sub === "uninstall") {
+    await uninstallDaemon();
+    return;
+  }
+
+  // No subcommand → run the daemon in-process.
   acquireLockOrExit();
   installShutdownHandlers();
-  runDaemon(port);
-  // runDaemon binds the listener; process stays alive until SIGINT/SIGTERM.
+  runDaemon(parsePortArg(3));
+}
+
+function parsePortArg(startIndex: number): number | undefined {
+  for (let i = startIndex; i < process.argv.length; i++) {
+    if (process.argv[i] === "--port" && process.argv[i + 1]) {
+      const n = parseInt(process.argv[i + 1], 10);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return undefined;
 }
 
 function acquireLockOrExit() {
@@ -121,23 +142,27 @@ function printHelp() {
     [
       "pl-mcp — ProjectionLab MCP server",
       "",
-      "Usage: pl-mcp [daemon|serve|login|logout|status] [options]",
+      "Usage: pl-mcp <command> [options]",
       "",
       "Commands:",
-      "  daemon    Run the long-lived HTTP daemon (recommended). All MCP clients",
-      "            connect to one shared instance. Use --port to override (default 7301).",
-      "  serve     Run the MCP server over stdio (one-process-per-host; legacy).",
-      "  login     Open a headed browser for one-time Firebase sign-in (CLI fallback;",
-      "            prefer the pl_login_interactive MCP tool when daemon is running).",
-      "  logout    Remove the persisted browser profile.",
-      "  status    Print session diagnostics as JSON.",
+      "  daemon                Run the HTTP daemon in this process (--port N to override).",
+      "  daemon install        Install + start the launchd user agent (macOS).",
+      "  daemon uninstall      Stop + remove the launchd user agent (macOS).",
+      "  bridge                Stdio→HTTP proxy. Use this in Claude Desktop's config:",
+      "                          {\"command\": \"pl-mcp\", \"args\": [\"bridge\"]}",
+      "  serve                 Run the MCP server over stdio (single-host fallback).",
+      "  login                 Open a headed browser for one-time Firebase sign-in.",
+      "                          (Prefer the pl_login_interactive MCP tool when daemon is up.)",
+      "  logout                Remove the persisted browser profile.",
+      "  status                Print session diagnostics as JSON.",
       "",
       "Environment variables:",
       "  PROJECTIONLAB_KEY_PATH       Plugin API key file (default: ~/.config/projectionlab/key)",
       "  PROJECTIONLAB_PROFILE_DIR    Persistent browser profile (default: ~/.config/projectionlab/profile)",
       "  PROJECTIONLAB_BACKUPS_DIR    Snapshot output dir (default: ~/.config/projectionlab/backups)",
-      "  PROJECTIONLAB_HEADLESS       Set to 'false' to run the server with a visible browser (default: true)",
+      "  PROJECTIONLAB_HEADLESS       Set to 'false' to run with a visible browser (default: true)",
       "  PROJECTIONLAB_BASE_URL       App URL (default: https://app.projectionlab.com/)",
+      "  PROJECTIONLAB_PORT           Daemon/bridge port (default: 7301)",
       "",
     ].join("\n"),
   );
