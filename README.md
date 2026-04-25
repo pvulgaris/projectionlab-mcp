@@ -23,29 +23,21 @@ A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md)
 
 ### Prerequisites
 
-- **Node.js 20+** — install via `brew install node` or from [nodejs.org](https://nodejs.org).
-- **git** — included with the macOS Xcode Command Line Tools (`xcode-select --install` triggers the install if you don't have them yet).
-- **ProjectionLab account with Plugins enabled** — the Plugin API is a Pro-tier feature. If you don't see the **Plugins** menu under ProjectionLab Settings, you'll need to upgrade.
-- **An MCP host** — at least one of [Claude Code](https://claude.com/claude-code) (CLI) or [Claude Desktop](https://claude.ai/download) (Mac app).
-- **macOS** — the daemon flow uses `launchd`. The stdio fallback works on Linux too.
+- Node.js 20+
+- ProjectionLab account with **Plugins enabled** — the Plugin API is a Pro-tier feature; the Plugins menu under Settings won't appear otherwise.
+- macOS for the daemon (uses `launchd`). The stdio fallback works on Linux too.
+- An MCP host (Claude Code, Claude Desktop, or any other).
 
-The server downloads its own Chromium via Playwright on first install.
-
-### Clone and build
-
-Clone wherever you keep your code; the rest of these instructions assume you're in the repo root.
+### Setup
 
 ```sh
 git clone https://github.com/pvulgaris/projectionlab-mcp.git
 cd projectionlab-mcp
-npm install
-npx playwright install chromium
-npm run build
+npm install && npx playwright install chromium && npm run build
+npm link    # puts `pl-mcp` on your PATH
 ```
 
-### 1. Generate and save your Plugin API key
-
-In ProjectionLab: **Settings > Plugins**, enable Plugins, generate a key. Save it locally:
+Generate a Plugin API key in ProjectionLab (**Settings > Plugins**), then save it:
 
 ```sh
 mkdir -p ~/.config/projectionlab
@@ -53,98 +45,52 @@ printf '%s' 'YOUR_PLUGIN_API_KEY' > ~/.config/projectionlab/key
 chmod 600 ~/.config/projectionlab/key
 ```
 
-### 2. Install the daemon (recommended)
-
-The daemon runs as a launchd user agent. All MCP clients (Claude Code, Claude Desktop, etc.) connect to one shared instance over HTTP — same Chromium, same auth, no per-host process management.
+### Run as a daemon (recommended)
 
 ```sh
-./examples/install-daemon.sh
+pl-mcp daemon install
 ```
 
-The script renders the launchd plist, bootstraps the agent, and prints the next steps.
-
-### 3. Register the MCP server in your hosts
-
-**Claude Code:**
+Installs a launchd user agent so the daemon starts on login and is shared across all MCP hosts. Register it:
 
 ```sh
-claude mcp remove projectionlab -s user 2>/dev/null || true
+# Claude Code
 claude mcp add --scope user --transport http projectionlab http://127.0.0.1:7301/mcp
 ```
 
-**Claude Desktop:** the desktop app's `claude_desktop_config.json` accepts only stdio MCP entries (HTTP/SSE servers are managed via the in-app Connectors UI for Anthropic-hosted ones). Use `mcp-remote` as a stdio→HTTP bridge:
-
 ```json
+// Claude Desktop — claude_desktop_config.json
 "projectionlab": {
-  "command": "npx",
-  "args": ["-y", "mcp-remote", "http://127.0.0.1:7301/mcp", "--allow-http"]
+  "command": "pl-mcp",
+  "args": ["bridge"]
 }
 ```
 
-`--allow-http` is required because mcp-remote defaults to HTTPS-only; localhost is the exception. The first launch downloads `mcp-remote` from npm and is slow; subsequent launches use the npx cache.
+`pl-mcp bridge` is a stdio→HTTP proxy; Desktop's config doesn't speak HTTP natively, so this is the cleanest swap.
 
-Quit and relaunch Claude Desktop. Restart any open Claude Code sessions.
+Restart your hosts, then ask Claude *"sign me into ProjectionLab"* for the first-time login.
 
-### 4. Sign in (first time)
+### Stdio fallback
 
-In any host, ask Claude:
+Skip the daemon and run pl-mcp per-host over stdio:
 
-> sign me into ProjectionLab
+```sh
+claude mcp add projectionlab -- pl-mcp serve
+```
 
-The agent will call `pl_login_interactive`, a headed browser opens, you sign in, and you're done. No CLI command needed; the daemon handles everything.
+A singleton lock prevents profile corruption, so only one host can use PL at a time.
 
-### 5. Link the skill (optional)
-
-From the repo root:
+### Link the skill (optional)
 
 ```sh
 ln -sfn "$(pwd)/skills/projectionlab" ~/.claude/skills/projectionlab
 ```
 
-### Stdio fallback (development / non-daemon use)
-
-If you'd rather not run the daemon (e.g., for development), you can still register the stdio server per-host:
-
-```sh
-claude mcp add projectionlab -- node /path/to/projectionlab-mcp/dist/cli.js serve
-```
-
-The singleton lock prevents accidental multi-process corruption, but you can only have one host using PL at a time.
-
 ## Verify
 
-The natural way: in any MCP host, ask Claude:
+Ask Claude: *"check ProjectionLab session status."* Expected: `signedIn: true, pluginApiReady: true`. Then try *"what's in my plan?"* and *"back up my plan."*
 
-> check ProjectionLab session status
-
-That calls `pl_session_status`, which returns JSON like:
-
-```json
-{
-  "apiKeyPresent": true,
-  "browserAlive": true,
-  "signedIn": true,
-  "pluginApiReady": true,
-  ...
-}
-```
-
-Or test the daemon directly with `curl` (works regardless of MCP host):
-
-```sh
-curl -s -X POST http://127.0.0.1:7301/mcp \
-  -H 'content-type: application/json' \
-  -H 'accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"verify","version":"1"}}}'
-```
-
-A 200 with an `initialize` result means the daemon is live. (Note: `node dist/cli.js status` works only when the daemon is **not** running — the singleton lock prevents two pl-mcp processes from sharing a profile.)
-
-In a fresh MCP-host session, smoke-test the tool surface:
-
-- *"What's in my ProjectionLab plan?"* → calls `pl_export`, returns counts/structure.
-- *"Back up my plan."* → calls `pl_snapshot`, file appears in `~/.config/projectionlab/backups/`.
-- *"Update my Brokerage balance to 100000."* → confirms with you, calls `pl_update_account`, verifies.
+To probe the daemon without an MCP host: `curl -X POST http://127.0.0.1:7301/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"v","version":"1"}}}'`
 
 ## Tools
 
@@ -231,18 +177,26 @@ In any host, ask Claude:
 
 That triggers the `pl_login_interactive` tool. The daemon temporarily shuts down its headless Chromium, opens a headed window, waits for sign-in, then re-launches headless against the freshly-signed-in profile. Other tool calls during login return `login_in_progress`.
 
-CLI fallback (only when the daemon isn't running): `node dist/cli.js login` — same headed-browser flow, but you'll need to start the daemon back up afterwards.
+CLI fallback (only when the daemon isn't running): `pl-mcp login` — same headed-browser flow, but you'll need to start the daemon back up afterwards.
+
+### Uninstall the daemon
+
+```sh
+pl-mcp daemon uninstall
+```
+
+Removes the launchd job and the plist. The build, profile, and snapshots are untouched.
 
 ### Wipe the persistent profile
 
 ```sh
-node dist/cli.js logout
+pl-mcp logout
 ```
 
 ### Run with a visible browser (debugging)
 
 ```sh
-PROJECTIONLAB_HEADLESS=false node dist/cli.js serve
+PROJECTIONLAB_HEADLESS=false pl-mcp serve
 ```
 
 ### Snapshots
@@ -257,7 +211,7 @@ Snapshots live at `~/.config/projectionlab/backups/projectionlab-<iso>.json`, mo
 
 ```sh
 ls -lh ~/.config/projectionlab/backups/         # browse
-node dist/cli.js status                          # current paths/config
+pl-mcp status                                    # current paths/config
 # Inside Claude: ask "what's the snapshot stats?" — calls pl_snapshot_stats.
 ```
 
