@@ -23,10 +23,11 @@ export function readApiKey(): string {
     if (!raw) throw new Error("empty");
     return raw;
   } catch {
+    const keyDir = path.dirname(config.keyPath);
     throw new Error(
       `ProjectionLab Plugin API key not found at ${config.keyPath}. ` +
-        `Generate one in ProjectionLab Settings > Plugins, then save: ` +
-        `mkdir -p $(dirname ${config.keyPath}) && printf '%s' 'YOUR_KEY' > ${config.keyPath} && chmod 600 ${config.keyPath}`,
+        `Generate one in ProjectionLab Settings > Plugins, then save it with:\n` +
+        `  mkdir -p ${keyDir} && printf '%s' 'YOUR_KEY' > ${config.keyPath} && chmod 600 ${config.keyPath}`,
     );
   }
 }
