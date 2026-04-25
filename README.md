@@ -21,23 +21,22 @@ A thin skill at [`skills/projectionlab/SKILL.md`](skills/projectionlab/SKILL.md)
 
 ## Install
 
-### Prerequisites
+**Before you install.** This adds a long-lived daemon to your machine that drives a headless Chromium against your ProjectionLab account, persists Firebase auth cookies, and holds your Plugin API key on disk. Skim [Architecture](#architecture) and [Security](#security) first if you want to see exactly what runs and what it touches; the full footprint is enumerated under [What got installed](#what-got-installed) below.
 
-- Node.js 20+
-- ProjectionLab account with **Plugins enabled** — the Plugin API is a Pro-tier feature; the Plugins menu under Settings won't appear otherwise.
-- macOS for the daemon (uses `launchd`). The stdio fallback works on Linux too.
-- An MCP host (Claude Code, Claude Desktop, or any other).
+The Plugin API is a ProjectionLab Pro feature — confirm Settings → Plugins shows a **Plugins** menu before continuing.
 
 ### Setup
 
 ```sh
 git clone https://github.com/pvulgaris/projectionlab-mcp.git
 cd projectionlab-mcp
-npm install && npx playwright install chromium && npm run build
-npm link    # puts `pl-mcp` on your PATH
+npm install
+npx playwright install chromium     # downloads the Chromium build Playwright will drive
+npm run build                       # compiles TypeScript to dist/
+npm link                            # puts pl-mcp on your PATH (alternative: ./node_modules/.bin/pl-mcp)
 ```
 
-Generate a Plugin API key in ProjectionLab (**Settings > Plugins**), then save it:
+Save your Plugin API key (Settings → Plugins → Generate):
 
 ```sh
 mkdir -p ~/.config/projectionlab
@@ -45,52 +44,75 @@ printf '%s' 'YOUR_PLUGIN_API_KEY' > ~/.config/projectionlab/key
 chmod 600 ~/.config/projectionlab/key
 ```
 
-### Run as a daemon (recommended)
+### Daemon and hosts
+
+`pl-mcp daemon install` writes a user-level launchd agent (no sudo) and starts the daemon. **The daemon binds 127.0.0.1:7301 only — not reachable from your network.** macOS only; on Linux, see [Stdio fallback](#stdio-fallback-linux-or-no-daemon).
 
 ```sh
 pl-mcp daemon install
 ```
 
-Installs a launchd user agent so the daemon starts on login and is shared across all MCP hosts. Register it:
-
-```sh
-# Claude Code
-claude mcp add --scope user --transport http projectionlab http://127.0.0.1:7301/mcp
-```
+Its output prints a copy-paste `claude mcp add` line for **Claude Code**. For **Claude Desktop**, open **Settings → Developer → Edit Config** and add to `mcpServers`:
 
 ```json
-// Claude Desktop — claude_desktop_config.json
-"projectionlab": {
-  "command": "pl-mcp",
-  "args": ["bridge"]
-}
+"projectionlab": { "command": "pl-mcp", "args": ["bridge"] }
 ```
 
-`pl-mcp bridge` is a stdio→HTTP proxy; Desktop's config doesn't speak HTTP natively, so this is the cleanest swap.
+(`pl-mcp bridge` is a stdio→HTTP proxy because Desktop's config doesn't speak HTTP natively. If the spawn fails with "command not found", use the absolute path from `which pl-mcp` — GUI processes don't always inherit shell PATH.)
 
-Restart your hosts, then ask Claude *"sign me into ProjectionLab"* for the first-time login.
+### Sign in
 
-### Stdio fallback
+Restart your hosts, then ask Claude *"sign me into ProjectionLab"*. A headed Chromium opens; sign in once and you're done. Cookies persist in the profile dir.
 
-Skip the daemon and run pl-mcp per-host over stdio:
+### What got installed
+
+| Path / process | Mode | Purpose |
+|---|---|---|
+| `~/.config/projectionlab/key` | 0600 | The Plugin API key you saved above |
+| `~/.config/projectionlab/profile/` | dir | Chromium user-data-dir; Firebase session cookies after sign-in |
+| `~/.config/projectionlab/backups/*.json` | 0600 | Snapshot files; `settings.plugins.apiKey` redacted before write |
+| `~/Library/LaunchAgents/com.projectionlab-mcp.plist` | — | User-level launchd agent (no sudo) |
+| `node dist/cli.js daemon` (background) | — | Bound to **127.0.0.1:7301** only |
+| Outbound network | — | `app.projectionlab.com` and the Firebase endpoints it loads. No telemetry. |
+
+### Stdio fallback (Linux, or no daemon)
+
+Skip `pl-mcp daemon install`. Register pl-mcp directly per-host:
 
 ```sh
 claude mcp add projectionlab -- pl-mcp serve
 ```
 
-A singleton lock prevents profile corruption, so only one host can use PL at a time.
+For Claude Desktop, use `{"command": "pl-mcp", "args": ["serve"]}`. A singleton lock allows only one host at a time.
 
-### Link the skill (optional)
+### Optional skill
 
 ```sh
 ln -sfn "$(pwd)/skills/projectionlab" ~/.claude/skills/projectionlab
 ```
 
-## Verify
+### Uninstall completely
 
-Ask Claude: *"check ProjectionLab session status."* Expected: `signedIn: true, pluginApiReady: true`. Then try *"what's in my plan?"* and *"back up my plan."*
+```sh
+pl-mcp daemon uninstall                # stop + remove the launchd agent
+pl-mcp logout                          # wipe the Chromium profile (Firebase cookies)
+npm unlink -g projectionlab-mcp        # remove pl-mcp from PATH
+rm -rf ~/.config/projectionlab         # remove key, snapshots, profile
+```
 
-To probe the daemon without an MCP host: `curl -X POST http://127.0.0.1:7301/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"v","version":"1"}}}'`
+Reverses everything Setup created.
+
+## Verify what you installed
+
+```sh
+lsof -iTCP:7301 -sTCP:LISTEN          # should show 127.0.0.1, not 0.0.0.0 or *
+ls -l ~/.config/projectionlab/key     # mode should be -rw-------
+launchctl list | grep projectionlab   # registered under your uid, not system
+```
+
+Then ask Claude *"check ProjectionLab session status"* — should return `signedIn: true, pluginApiReady: true`. Try *"what's in my plan?"* and *"back up my plan."* to confirm reads + snapshots work.
+
+To probe the daemon without an MCP host: `curl -X POST http://127.0.0.1:7301/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'`
 
 ## Tools
 
@@ -234,10 +256,13 @@ Time-based: *"undo back to before noon today"* → `pl_restore_preview({ before_
 
 ## Security
 
-- The Plugin API key file is mode 0600. Never commit it. Never echo it in prose.
-- The persistent profile contains your Firebase session cookies — treat the directory as sensitive.
+(See [What got installed](#what-got-installed) for the full install footprint with file modes and the network bind.)
+
+- The daemon binds **127.0.0.1 only** (`src/daemon.ts`). There's no flag to expose it; if you need that, you'll have to fork.
 - Writes require explicit user confirmation per call (enforced by the skill, not the server). The server itself does not gate writes.
-- Restore-style methods (whole-section replace) are intentionally not exposed.
+- Only `pl_update_account` (balance + costBasis) is exposed for writes. The Plugin API's whole-section replace methods (`restoreCurrentFinances`, `restorePlans`, etc.) are intentionally not surfaced.
+- Snapshots redact `settings.plugins.apiKey` before writing.
+- The Chromium profile holds Firebase session cookies — treat the dir as sensitive. `pl-mcp logout` wipes it.
 
 ## Non-goals
 
