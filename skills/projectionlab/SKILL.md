@@ -85,6 +85,14 @@ When the user says "undo," "revert," "go back," or asks to restore to a known-go
 - Cannot restore deleted accounts or un-create added accounts (`updateAccount` can't create or delete).
 - Cannot restore non-balance state (milestones, plan settings, withdrawal strategy, taxes). The snapshot file remains the user's reference for those — direct them to fix in the PL UI if needed.
 
+## Batch updates
+
+For multi-account updates (e.g., reconciling PL against an external source the user provides):
+
+1. Match the source's account names against `pl_get_accounts` by case-insensitive substring; surface unmatched accounts before proceeding.
+2. For each matched pair where balances differ, render the diff and ask the user to confirm the *batch* (not per-account). Wait for a literal `yes` to the bulk apply.
+3. **Snapshot strategy:** call `pl_snapshot` once at the start of the batch, then call `pl_update_account` with `skip_snapshot: true` for each account. This avoids per-account snapshot churn (~94KB each) and makes the whole batch undoable as a single unit via `pl_restore_apply({ snapshot_path: <the batch snapshot> })` or `pl_restore_apply({ n_back: <count of writes since> })`.
+4. After the batch, verify each `pl_update_account` returned `verified: true`. Surface any failures loudly — partial batches happen.
 
 ## Error guidance
 
