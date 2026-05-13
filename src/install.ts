@@ -119,6 +119,31 @@ function resolvePort(arg: number | undefined): number {
   return DEFAULT_PORT;
 }
 
+/**
+ * Pick a stable on-disk node path for the plist. `process.execPath` resolves
+ * to a versioned Homebrew Cellar path like
+ * `/opt/homebrew/Cellar/node/26.0.0/bin/node`; the next `brew upgrade node`
+ * prunes that directory and the daemon dies on launch with exit 78 until the
+ * user reruns install. If a stable symlink (e.g. `/opt/homebrew/bin/node`)
+ * points at the same real binary, prefer it — it survives upgrades.
+ */
+function resolveStableNodePath(): string {
+  let exec: string;
+  try {
+    exec = fs.realpathSync(process.execPath);
+  } catch {
+    return process.execPath;
+  }
+  for (const candidate of ["/opt/homebrew/bin/node", "/usr/local/bin/node"]) {
+    try {
+      if (fs.realpathSync(candidate) === exec) return candidate;
+    } catch {
+      // candidate missing — try the next one
+    }
+  }
+  return process.execPath;
+}
+
 async function pollDaemon(port: number, timeoutMs: number): Promise<boolean> {
   const url = `http://127.0.0.1:${port}/mcp`;
   const deadline = Date.now() + timeoutMs;
@@ -138,7 +163,7 @@ export async function installDaemon(portArg?: number): Promise<void> {
   refuseOnNonDarwin();
   const port = resolvePort(portArg);
   const home = os.homedir();
-  const node = process.execPath;
+  const node = resolveStableNodePath();
   const cli = fileURLToPath(new URL("./cli.js", import.meta.url));
   // dist/cli.js → repo root is two levels up.
   const workingDir = path.resolve(path.dirname(cli), "..");
