@@ -102,7 +102,7 @@ export function createServer(): McpServer {
 
   server.tool(
     "pl_get_accounts",
-    "Today-account roster: every savings, investment, and asset account with its id (the id required by pl_update_account), name, type, owner, balance, and (where applicable) costBasis.",
+    "Today-account roster: every savings, investment, and asset account with its id (the id required by pl_update_account), name, type, owner, balance, and (where applicable) costBasis. For real-estate assets, PL stores loan balance in `balance` and market value in `amount`; this tool also returns a nested `realEstate` block with `marketValue`, derived `netEquity`, `loan` (apr / monthly payment / interest type / compounding — only when financed), and `propertyTax` / `insurance` / `maintenance` / `monthlyHOA` rates plus `appreciation`. Mortgages don't appear as separate debt accounts — they hang off the asset row.",
     {},
     safeTool(plGetAccounts),
   );

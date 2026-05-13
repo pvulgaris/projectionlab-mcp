@@ -53,6 +53,41 @@ export async function plExport() {
   };
 }
 
+/**
+ * For real-estate, PL stores loan balance in `balance` and market value in
+ * `amount`, with APR / monthly payment / property-tax / insurance /
+ * maintenance / appreciation as sibling fields. Surface them on a nested
+ * `realEstate` block so a financed home isn't invisible to callers.
+ */
+function realEstateExtras(a: any): Record<string, unknown> {
+  if (a.type !== "real-estate") return {};
+  const re: Record<string, unknown> = {
+    marketValue: a.amount,
+    paymentMethod: a.paymentMethod,
+    classification: a.classification,
+    excludeLoanFromLNW: a.excludeLoanFromLNW,
+  };
+  if (typeof a.amount === "number" && typeof a.balance === "number") {
+    re.netEquity = a.amount - a.balance;
+  }
+  if (a.paymentMethod === "financed") {
+    re.loan = {
+      apr: a.interestRate,
+      interestType: a.interestType,
+      monthlyPayment: a.monthlyPayment,
+      compounding: a.compounding,
+    };
+  }
+  re.propertyTax = { rate: a.taxRate, rateType: a.taxRateType };
+  re.insurance = { rate: a.insuranceRate, rateType: a.insuranceRateType };
+  re.maintenance = { rate: a.maintenanceRate, rateType: a.maintenanceRateType };
+  re.monthlyHOA = { amount: a.monthlyHOA, type: a.monthlyHOAType };
+  if (a.yearlyChange) {
+    re.appreciation = { rate: a.yearlyChange.amount, type: a.yearlyChange.type };
+  }
+  return { realEstate: re };
+}
+
 export async function plGetAccounts() {
   const data = scrub(await exportData());
   const assemble = (arr: any[] | undefined, bucket: string) =>
@@ -64,6 +99,7 @@ export async function plGetAccounts() {
       balance: a.balance,
       ...(a.costBasis !== undefined ? { costBasis: a.costBasis } : {}),
       bucket,
+      ...realEstateExtras(a),
     }));
   return [
     ...assemble(data.today?.savingsAccounts, "savings"),

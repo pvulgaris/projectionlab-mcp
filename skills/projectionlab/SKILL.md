@@ -27,6 +27,10 @@ The `mcp__projectionlab__*` tools read and update the user's plan via a persiste
    - taxes → `pl_get_tax_variables`
 3. When summarizing, prefer structure and counts. Include specific balances only when the user asks.
 
+### Real-estate quirk
+
+For `type: "real-estate"` rows from `pl_get_accounts`, PL's `balance` field is the **loan balance**, not the property value. The market value lives in `realEstate.marketValue` (PL's underlying `amount` field). The nested `realEstate` block also includes `netEquity` (marketValue − loanBalance), a `loan` sub-block for financed properties (apr, monthlyPayment, interestType, compounding), and the carrying-cost rates (`propertyTax`, `insurance`, `maintenance`, `monthlyHOA`, `appreciation`). Mortgages are **not** standalone debt accounts in PL — they're fields on the asset row, so `pl_export`'s `today.debts` will read 0 even when the user has a mortgage.
+
 ## Write flow — `pl_update_account`
 
 Every write requires explicit per-call user confirmation. No silent writes, no batched writes across multiple accounts.
