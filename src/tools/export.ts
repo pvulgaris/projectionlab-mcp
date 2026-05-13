@@ -58,53 +58,79 @@ export async function plExport() {
  * `amount`, with APR / monthly payment / property-tax / insurance /
  * maintenance / appreciation as sibling fields. Surface them on a nested
  * `realEstate` block so a financed home isn't invisible to callers.
+ *
+ * The asset lives in two places: `today.assets[]` (master record, target of
+ * pl_update_account) and `plans[].assets.events[]` (per-plan overlay,
+ * back-references via `assetId`). The UI tile shows the active plan event;
+ * the today record can drift behind for fields the user has edited only on
+ * the plan side. We read rates from the active plan event when present, so
+ * the MCP matches what the user sees.
  */
-function realEstateExtras(a: any): Record<string, unknown> {
+function realEstateExtras(a: any, planEvent: any | null): Record<string, unknown> {
   if (a.type !== "real-estate") return {};
+  const src = planEvent ?? a;
   const re: Record<string, unknown> = {
-    marketValue: a.amount,
-    paymentMethod: a.paymentMethod,
-    classification: a.classification,
-    excludeLoanFromLNW: a.excludeLoanFromLNW,
+    marketValue: src.amount,
+    paymentMethod: src.paymentMethod,
+    classification: src.classification,
+    excludeLoanFromLNW: src.excludeLoanFromLNW,
   };
-  if (typeof a.amount === "number" && typeof a.balance === "number") {
-    re.netEquity = a.amount - a.balance;
+  if (typeof src.amount === "number" && typeof a.balance === "number") {
+    re.netEquity = src.amount - a.balance;
   }
-  if (a.paymentMethod === "financed") {
+  if (src.paymentMethod === "financed") {
     re.loan = {
-      apr: a.interestRate,
-      interestType: a.interestType,
-      monthlyPayment: a.monthlyPayment,
-      compounding: a.compounding,
+      apr: src.interestRate,
+      interestType: src.interestType,
+      monthlyPayment: src.monthlyPayment,
+      compounding: src.compounding,
     };
   }
-  re.propertyTax = { rate: a.taxRate, rateType: a.taxRateType };
-  re.insurance = { rate: a.insuranceRate, rateType: a.insuranceRateType };
-  re.maintenance = { rate: a.maintenanceRate, rateType: a.maintenanceRateType };
-  re.monthlyHOA = { amount: a.monthlyHOA, type: a.monthlyHOAType };
-  if (a.yearlyChange) {
-    re.appreciation = { rate: a.yearlyChange.amount, type: a.yearlyChange.type };
+  re.propertyTax = { rate: src.taxRate, rateType: src.taxRateType };
+  re.insurance = { rate: src.insuranceRate, rateType: src.insuranceRateType };
+  re.maintenance = { rate: src.maintenanceRate, rateType: src.maintenanceRateType };
+  re.monthlyHOA = { amount: src.monthlyHOA, type: src.monthlyHOAType };
+  if (src.yearlyChange) {
+    re.appreciation = { rate: src.yearlyChange.amount, type: src.yearlyChange.type };
+  }
+  if (planEvent) {
+    re._source = "active-plan-event";
+    const overridden = planEvent?._meta?.overriddenFields;
+    if (overridden && typeof overridden === "object") {
+      re.overriddenFields = Object.keys(overridden).filter((k) => overridden[k]);
+    }
+  } else {
+    re._source = "today-record";
   }
   return { realEstate: re };
 }
 
+function activePlanAssetEventByAssetId(data: any, todayAssetId: string): any | null {
+  const active = activePlan(data);
+  const events = active?.assets?.events || [];
+  return events.find((e: any) => e.assetId === todayAssetId) || null;
+}
+
 export async function plGetAccounts() {
   const data = scrub(await exportData());
-  const assemble = (arr: any[] | undefined, bucket: string) =>
-    (arr || []).map((a: any) => ({
-      id: a.id,
-      name: a.name,
-      type: a.type,
-      owner: a.owner,
-      balance: a.balance,
-      ...(a.costBasis !== undefined ? { costBasis: a.costBasis } : {}),
-      bucket,
-      ...realEstateExtras(a),
-    }));
+  const assemble = (arr: any[] | undefined, bucket: string, withRealEstate = false) =>
+    (arr || []).map((a: any) => {
+      const planEvent = withRealEstate ? activePlanAssetEventByAssetId(data, a.id) : null;
+      return {
+        id: a.id,
+        name: a.name,
+        type: a.type,
+        owner: a.owner,
+        balance: a.balance,
+        ...(a.costBasis !== undefined ? { costBasis: a.costBasis } : {}),
+        bucket,
+        ...(withRealEstate ? realEstateExtras(a, planEvent) : {}),
+      };
+    });
   return [
     ...assemble(data.today?.savingsAccounts, "savings"),
     ...assemble(data.today?.investmentAccounts, "investment"),
-    ...assemble(data.today?.assets, "asset"),
+    ...assemble(data.today?.assets, "asset", true),
   ];
 }
 

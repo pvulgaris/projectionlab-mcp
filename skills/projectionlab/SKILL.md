@@ -31,6 +31,8 @@ The `mcp__projectionlab__*` tools read and update the user's plan via a persiste
 
 For `type: "real-estate"` rows from `pl_get_accounts`, PL's `balance` field is the **loan balance**, not the property value. The market value lives in `realEstate.marketValue` (PL's underlying `amount` field). The nested `realEstate` block also includes `netEquity` (marketValue − loanBalance), a `loan` sub-block for financed properties (apr, monthlyPayment, interestType, compounding), and the carrying-cost rates (`propertyTax`, `insurance`, `maintenance`, `monthlyHOA`, `appreciation`). Mortgages are **not** standalone debt accounts in PL — they're fields on the asset row, so `pl_export`'s `today.debts` will read 0 even when the user has a mortgage.
 
+The `realEstate` block is sourced from the **active plan's** asset event when one matches the today-asset's id — that's what the UI property tile shows and what the user edits. `realEstate._source` is `"active-plan-event"` or `"today-record"` so you know which set of numbers you're reading. The today record can drift from the plan event for rates the user has only changed on the plan side; the `overriddenFields` list (when present) names which fields the user explicitly overrode.
+
 ## Write flow — `pl_update_account`
 
 Every write requires explicit per-call user confirmation. No silent writes, no batched writes across multiple accounts.
