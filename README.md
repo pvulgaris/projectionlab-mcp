@@ -171,6 +171,24 @@ mcp__projectionlab__<tool>  ──►  pl-mcp serve (this repo)
 
 The browser launches lazily on the first tool call and is held for the lifetime of the server process.
 
+### Plugin API surface
+
+`window.projectionlabPluginAPI` exposes exactly seven methods (probed 2026-05-13 against the live app). The API is purely input-side: read full state, write fields, or replace whole sections. **It has no projection-output methods** — year-by-year net worth, Monte Carlo distributions, and withdrawal simulations are computed inside PL's Vue/Pinia store and never surfaced through the Plugin API.
+
+| Method | Surfaced as | Notes |
+| --- | --- | --- |
+| `exportData({key})` | `pl_export`, `pl_get_*` | Full plan-state read. Every read tool in this MCP is a projection of this payload. |
+| `updateAccount(accountId, fields, {key, force})` | `pl_update_account` | Atomic per-account write. `fields` is the same shape you'd see in `exportData`'s account row. |
+| `validateApiKey({key})` | `pl_validate_key` | Cheap auth probe. |
+| `restoreCurrentFinances(newToday, {key})` | _not wrapped_ | Whole-replace `today.*`. Intentionally skipped — too easy to clobber state. Use one-at-a-time `updateAccount` calls instead. |
+| `restorePlans(newPlans, {key})` | _not wrapped_ | Whole-replace plans. Same reasoning. |
+| `restoreProgress(newProgress, {key})` | _not wrapped_ | Whole-replace progress. Same reasoning. |
+| `restoreSettings(newSettings, {key})` | _not wrapped_ | Whole-replace settings. Same reasoning. |
+
+Practical consequence: if you want "what does my plan look like in 10 years if I do X?", that has to happen in PL's UI scenarios — not here. Extending this MCP to compute it would mean rebuilding the projection engine from inputs, which is explicitly a non-goal.
+
+To re-probe after a PL release (in case the surface changes), add a temporary tool that runs `Object.getOwnPropertyNames(window.projectionlabPluginAPI)` via the existing `page.evaluate` bridge in `src/api.ts`. Don't commit the probe.
+
 ## Operations
 
 ### Rotate the Plugin API key
