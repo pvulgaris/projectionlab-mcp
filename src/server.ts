@@ -19,6 +19,8 @@ import { plUpdateAccount } from "./tools/update.js";
 import { plSnapshot, plListSnapshots, plSnapshotStats } from "./tools/snapshot.js";
 import { plRestorePreview, plRestoreApply } from "./tools/restore.js";
 import { plSessionStatus, plValidateKey, plReloadSession, plLoginInteractive } from "./tools/session.js";
+import { plCreateScenario } from "./tools/clone.js";
+import { plDeleteScenario, plGetPlanEvents } from "./tools/plan_admin.js";
 
 function jsonContent(data: unknown) {
   return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
@@ -152,6 +154,19 @@ export function createServer(): McpServer {
     safeTool(plGetTaxVariables),
   );
 
+  server.tool(
+    "pl_get_plan_events",
+    "Return the raw events array for a plan and collection (or all collections if omitted). Use this to discover event ids and back-references before constructing pl_create_scenario modifications. Defaults to the active plan.",
+    {
+      plan_id: z.string().optional().describe("Plan id (from pl_export). Defaults to the active plan."),
+      collection: z
+        .enum(["income", "expenses", "assets", "accounts", "priorities"])
+        .optional()
+        .describe("Which event collection to return. Omit for all."),
+    },
+    safeTool(plGetPlanEvents),
+  );
+
   // Write.
   server.tool(
     "pl_update_account",
@@ -170,6 +185,48 @@ export function createServer(): McpServer {
         ),
     },
     safeTool(plUpdateAccount),
+  );
+
+  // Scenarios — atomic clone-with-modifications, plus delete.
+  server.tool(
+    "pl_create_scenario",
+    "Append a cloned plan (optionally with field-level modifications) for what-if analysis. Use this to create scenarios the user can compare in PL's UI (e.g., 'Mortgage Paid Off 2026' vs Baseline). Source defaults to the active plan; `new_name` is required and must not collide (case-insensitive trim). `modifications` is an array of { kind: 'set_event_fields', collection, match, fields } operations applied to the cloned plan. The call snapshots first, dry-runs all match resolutions, writes via the Plugin API's restorePlans, then re-exports to verify neighbor invariants (other plans unchanged, today.* rosters unchanged, active plan unchanged, modifications observed). ALWAYS confirm with the user before calling — name the source plan, the new name, and summarize each modification's before/after; wait for a literal 'yes'. Snapshot rollback does NOT undo scenario creation — use pl_delete_scenario to remove.",
+    {
+      source_plan_id: z
+        .string()
+        .optional()
+        .describe("Plan id to clone from (from pl_export). Defaults to the active plan."),
+      new_name: z.string().describe("Name for the new scenario plan. Must be unique (case-insensitive trim)."),
+      modifications: z
+        .array(
+          z.object({
+            kind: z.literal("set_event_fields"),
+            collection: z.enum(["income", "expenses", "assets", "accounts", "priorities"]),
+            match: z.object({
+              id: z.string().optional(),
+              name: z.string().optional(),
+              type: z.string().optional(),
+              assetId: z.string().optional(),
+              accountId: z.string().optional(),
+            }),
+            fields: z.record(z.unknown()),
+          }),
+        )
+        .optional()
+        .describe(
+          "Field-level edits applied to the cloned plan. `match` keys AND together and must resolve to exactly one event. `fields` rejects structural keys (id, key, _meta, planPath, id-refs).",
+        ),
+    },
+    safeTool(plCreateScenario),
+  );
+
+  server.tool(
+    "pl_delete_scenario",
+    "Delete a plan by id. id-only (no name lookup) because deletion is irreversible — snapshot rollback does NOT restore deleted plans. The agent must look up the id via pl_export FIRST and surface name+id to the user before calling. Refuses to delete the active plan or the last remaining plan. Includes a freshness gate against concurrent UI edits. ALWAYS confirm with the user — name the plan (id and name), event counts, and remaining plan count; wait for a literal 'yes'.",
+    {
+      id: z.string().describe("Plan id (from pl_export). Required — no default."),
+    },
+    safeTool(plDeleteScenario),
   );
 
   // Snapshots & rollback.

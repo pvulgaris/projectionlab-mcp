@@ -128,7 +128,10 @@ To probe the daemon without an MCP host: `curl -X POST http://127.0.0.1:7301/mcp
 | `pl_get_monte_carlo` | Monte Carlo settings. |
 | `pl_get_withdrawal_strategy` | Active withdrawal strategy + nested config. |
 | `pl_get_tax_variables` | Tax variables. |
+| `pl_get_plan_events` | Raw events array for a plan and collection — use to discover event ids before `pl_create_scenario`. |
 | `pl_update_account` | Atomic single-account write (balance, costBasis). Auto-snapshots first. |
+| `pl_create_scenario` | Append a cloned plan (optionally with field-level edits) for what-if analysis. Auto-snapshots first; deletion is irreversible. |
+| `pl_delete_scenario` | Delete a plan by id (irreversible — snapshot does not restore it). Refuses to delete the active or only plan. |
 | `pl_snapshot` | Full export to a timestamped JSON file. |
 | `pl_list_snapshots` | List recent snapshots (index 0 = most recent). |
 | `pl_snapshot_stats` | Aggregate count + total bytes; oldest/newest. |
@@ -173,7 +176,7 @@ The browser launches lazily on the first tool call and is held for the lifetime 
 
 ### Plugin API surface
 
-`window.projectionlabPluginAPI` exposes exactly seven methods (probed 2026-05-13 against the live app). The API is purely input-side: read full state, write fields, or replace whole sections. **It has no projection-output methods** — year-by-year net worth, Monte Carlo distributions, and withdrawal simulations are computed inside PL's Vue/Pinia store and never surfaced through the Plugin API.
+`window.projectionlabPluginAPI` exposes exactly seven methods. The API is purely input-side: read full state, write fields, or replace whole sections. **It has no projection-output methods** — year-by-year net worth, Monte Carlo distributions, and withdrawal simulations are computed inside PL's Vue/Pinia store and never surfaced through the Plugin API. The MCP can automate scenario *setup* but not scenario *evaluation*; the user runs the comparison in PL's UI.
 
 | Method | Surfaced as | Notes |
 | --- | --- | --- |
@@ -181,7 +184,7 @@ The browser launches lazily on the first tool call and is held for the lifetime 
 | `updateAccount(accountId, fields, {key, force})` | `pl_update_account` | Atomic per-account write. `fields` is the same shape you'd see in `exportData`'s account row. |
 | `validateApiKey({key})` | `pl_validate_key` | Cheap auth probe. |
 | `restoreCurrentFinances(newToday, {key})` | _not wrapped_ | Whole-replace `today.*`. Intentionally skipped — too easy to clobber state. Use one-at-a-time `updateAccount` calls instead. |
-| `restorePlans(newPlans, {key})` | _not wrapped_ | Whole-replace plans. Same reasoning. |
+| `restorePlans(newPlans, {key})` | `pl_create_scenario`, `pl_delete_scenario` | Whole-replace plans. Wrapped behind append-only semantics (clone-with-mods or delete-one) with snapshot, freshness gate, and post-write invariant verification. |
 | `restoreProgress(newProgress, {key})` | _not wrapped_ | Whole-replace progress. Same reasoning. |
 | `restoreSettings(newSettings, {key})` | _not wrapped_ | Whole-replace settings. Same reasoning. |
 

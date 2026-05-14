@@ -64,6 +64,52 @@ export async function updateAccount(
   );
 }
 
+export interface RestorePlansResult {
+  writeError: string | null;
+}
+
+/**
+ * Whole-section replace of `plans`. The Plugin API's restorePlans internally
+ * runs both a store-replace and a syncPlans pass; we can't separate them from
+ * outside, so a single writeError covers both. Callers must verify via a
+ * re-exportData() after this returns.
+ */
+export async function restorePlans(newPlans: any[]): Promise<RestorePlansResult> {
+  const page = await getReadyPage();
+  const key = readApiKey();
+  return await page.evaluate(
+    async ({ k, payload }) => {
+      const api = (window as any).projectionlabPluginAPI;
+      try {
+        await api.restorePlans(payload, { key: k });
+        return { writeError: null };
+      } catch (e: any) {
+        return { writeError: String(e?.message ?? e) };
+      }
+    },
+    { k: key, payload: newPlans },
+  );
+}
+
+export interface PluginApiSurface {
+  hasRestorePlans: boolean;
+  hasExportData: boolean;
+  hasUpdateAccount: boolean;
+}
+
+/** Cheap probe: confirm the Plugin API still exposes the methods we need. */
+export async function probePluginApi(): Promise<PluginApiSurface> {
+  const page = await getReadyPage();
+  return await page.evaluate(() => {
+    const api = (window as any).projectionlabPluginAPI;
+    return {
+      hasRestorePlans: typeof api?.restorePlans === "function",
+      hasExportData: typeof api?.exportData === "function",
+      hasUpdateAccount: typeof api?.updateAccount === "function",
+    };
+  });
+}
+
 export async function validateApiKey(): Promise<{ valid: boolean; error?: string }> {
   const page = await getReadyPage();
   const key = readApiKey();
